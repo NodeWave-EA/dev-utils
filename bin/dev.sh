@@ -16,8 +16,13 @@ resolve_repo_root() {
 
 REPO_ROOT="$(resolve_repo_root)"
 COMMANDS_DIR="$REPO_ROOT/commands"
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dev-utils/bin"
-VERSION="0.3.0"
+USER_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dev-utils/bin"
+if [[ "${EUID:-$(id -u)}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+  CACHE_DIR="${TMPDIR:-/tmp}/dev-utils-root-bin"
+else
+  CACHE_DIR="$USER_CACHE_DIR"
+fi
+VERSION="0.3.1"
 
 # Configure colors only for interactive TTYs when NO_COLOR is unset
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -405,7 +410,7 @@ find_command_file() {
 show_help() {
   printf '%sdev%s %s(v%s)%s — Polyglot developer utility belt\n\n' "$BOLD" "$RESET" "$DIM" "$VERSION" "$RESET"
   printf '%sUsage:%s\n' "$BOLD" "$RESET"
-  printf '  dev <command> [args...]\n'
+  printf '  dev [--sudo] <command> [args...]\n'
   printf '  dev [--help | --version | --list | --langs | --doctor]\n\n'
   printf '%sAvailable commands:%s\n' "$BOLD" "$RESET"
 
@@ -428,7 +433,7 @@ show_help() {
     printf '  %s(No commands found in %s)%s\n' "$DIM" "$COMMANDS_DIR" "$RESET"
   fi
 
-  printf '\n%sTip:%s Run %sdev <command> --help%s for subcommand options.\n' "$DIM" "$RESET" "$CYAN" "$RESET"
+  printf '\n%sTip:%s Run %sdev <command> --help%s for subcommand options, or %sdev --sudo <command>%s for root privileges.\n' "$DIM" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
 }
 
 print_language_table() {
@@ -577,14 +582,22 @@ exec_command() {
 
     case "$mode" in
     compile)
+      local cmd_stem user_bin cache_bin
+      cmd_stem="$(command_name_for_file "$target")"
+      user_bin="$USER_CACHE_DIR/$cmd_stem"
+      cache_bin="$CACHE_DIR/$cmd_stem"
+
+      # Reuse already-compiled user binary when running under sudo
+      if [[ "$CACHE_DIR" != "$USER_CACHE_DIR" && -x "$user_bin" && ! "$target" -nt "$user_bin" ]]; then
+        exec "$user_bin" "$@"
+      fi
+
       if ! runner_spec="$(find_available_runner "$runners")"; then
         printf '%sError:%s No compiler installed for [%s] (expected one of: %s)\n' \
           "$RED" "$RESET" "$lang" "$(extract_runner_names "$runners")" >&2
         exit 1
       fi
       runner_tpl="${runner_spec#*|}"
-      local cache_bin
-      cache_bin="$CACHE_DIR/$(command_name_for_file "$target")"
       if [[ ! -x "$cache_bin" || "$target" -nt "$cache_bin" ]]; then
         mkdir -p "$CACHE_DIR"
         run_template "$runner_tpl" "$target" "$cache_bin"
@@ -650,6 +663,22 @@ if [[ $# -eq 0 ]]; then
 fi
 
 case "$1" in
+--sudo | sudo)
+  shift
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    exec sudo -- "$REPO_ROOT/bin/dev.sh" "$@"
+  fi
+  if [[ $# -eq 0 ]]; then
+    if [[ -t 0 && -t 1 ]]; then
+      interactive_launcher
+    else
+      show_help
+    fi
+  else
+    exec_command "$@"
+  fi
+  exit 0
+  ;;
 -h | --help)
   show_help
   exit 0

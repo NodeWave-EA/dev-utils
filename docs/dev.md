@@ -12,12 +12,24 @@ Main entrypoint (`dev`) for `dev-utils`. Resolves symlinks to locate the reposit
 ```bash
 dev                             # Open interactive command launcher (in TTY) or show help
 dev <command> [args...]         # Execute a subcommand from commands/
+dev --sudo <command> [args...]  # Re-execute a subcommand with sudo (alias: dev sudo)
 dev --help | -h                 # List discovered commands with runtime badges & descriptions
 dev --version | -v              # Print dev-utils version
 dev --list                      # Output raw subcommand names (used by tab-completion)
 dev --langs                     # Print the active declarative language registry table
 dev --doctor                    # Audit repository paths, language runtimes & system tools
 ```
+
+---
+
+## Privilege Elevation (`--sudo`)
+
+When `dev-utils` is installed with `./install.sh --user` into `~/.local/bin/dev`, running `sudo dev <command>` fails with `sudo: dev: command not found` because `sudo` resets `$PATH` to `secure_path` (which excludes user home directories).
+
+Use `dev --sudo <command> [args...]` (or `dev sudo <command> [args...]`) instead:
+
+1. **Direct Path Resolution:** Resolves `$REPO_ROOT/bin/dev.sh` before invoking `sudo`, bypassing `secure_path` lookups.
+2. **Cache Isolation:** When running under `sudo` (`SUDO_USER` is set), compiled Go/Rust utilities reuse up-to-date binaries from `~/.cache/dev-utils/bin/` if present, or compile into `${TMPDIR:-/tmp}/dev-utils-root-bin` so root never creates root-owned files inside your user cache directory.
 
 ---
 
